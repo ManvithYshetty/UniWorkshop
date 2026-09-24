@@ -1,7 +1,20 @@
-import { eq, asc } from 'drizzle-orm';
+/**
+ * Provides typed data-access helpers for game records and game filtering.
+ * Queries use an injectable database client so they can run against the
+ * production database or an in-memory test database.
+ */
+
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game } from '../types/game';
+
+/** Optional category and publisher constraints for game queries. */
+export interface GameFilters {
+    categoryIds?: number[];
+    publisherId?: number;
+}
 
 const gameSelection = {
     id: games.id,
@@ -42,28 +55,60 @@ function mapGame(row: GameSelectionRow): Game {
     };
 }
 
-function baseGamesQuery(db: Database) {
+function buildFilterCondition(filters: GameFilters): SQL | undefined {
+    const conditions = [];
+
+    if (filters.categoryIds && filters.categoryIds.length > 0) {
+        conditions.push(inArray(games.categoryId, filters.categoryIds));
+    }
+
+    if (filters.publisherId !== undefined) {
+        conditions.push(eq(games.publisherId, filters.publisherId));
+    }
+
+    return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+function baseGamesQuery(db: Database, condition?: SQL) {
     return db
         .select(gameSelection)
         .from(games)
         .leftJoin(categories, eq(games.categoryId, categories.id))
-        .leftJoin(publishers, eq(games.publisherId, publishers.id));
+        .leftJoin(publishers, eq(games.publisherId, publishers.id))
+        .where(condition);
 }
 
-/** All games ordered by title. */
-export async function getAllGames(db: Database): Promise<Game[]> {
-    const rows = await baseGamesQuery(db).orderBy(asc(games.title));
+/**
+ * Retrieves games ordered by title, optionally filtered by category and publisher.
+ *
+ * @param db - The database client used to execute the query.
+ * @param filters - Optional category and publisher constraints.
+ * @returns The matching games ordered alphabetically by title.
+ */
+export async function getAllGames(db: Database, filters: GameFilters = {}): Promise<Game[]> {
+    const rows = await baseGamesQuery(db, buildFilterCondition(filters)).orderBy(asc(games.title));
     return rows.map(mapGame);
 }
 
-/** All game ids ordered by title. */
+/**
+ * Retrieves all game ids ordered by title.
+ *
+ * @param db - The database client used to execute the query.
+ * @returns The game ids ordered alphabetically by title.
+ */
 export async function getAllGameIds(db: Database): Promise<number[]> {
     const rows = await db.select({ id: games.id }).from(games).orderBy(asc(games.title));
     return rows.map((row) => row.id);
 }
 
-/** A single game by id, or null when it does not exist. */
+/**
+ * Retrieves a single game by id.
+ *
+ * @param db - The database client used to execute the query.
+ * @param id - The game id to look up.
+ * @returns The matching game, or null when it does not exist.
+ */
 export async function getGameById(db: Database, id: number): Promise<Game | null> {
-    const row = await baseGamesQuery(db).where(eq(games.id, id)).get();
+    const row = await baseGamesQuery(db, eq(games.id, id)).get();
     return row ? mapGame(row) : null;
 }

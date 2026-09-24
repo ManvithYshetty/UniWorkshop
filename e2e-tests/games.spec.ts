@@ -1,6 +1,43 @@
+/**
+ * Verifies game listing, filtering, navigation, and game detail behavior.
+ */
+
 import { test, expect, type Response } from '@playwright/test';
 
 test.describe('Game Listing and Navigation', () => {
+  test('should filter games by category and publisher and clear filters', async ({ page }) => {
+    await test.step('Navigate to homepage', async () => {
+      await page.goto('/');
+      await expect(page.getByTestId('game-filters')).toBeVisible();
+    });
+
+    const allCards = page.getByTestId('game-card');
+    const visibleCards = page.locator('[data-testid="game-card"]:not(.hidden)');
+    const initialCount = await allCards.count();
+    const categoryFilter = page.locator('[data-filter-category]').first();
+    const publisherFilter = page.getByTestId('publisher-filter');
+
+    await test.step('Filter by a category', async () => {
+      await categoryFilter.check();
+      await expect(page.getByTestId('filter-result-count')).not.toHaveText(`Showing ${initialCount} games`);
+      await expect(visibleCards).not.toHaveCount(initialCount);
+    });
+
+    const categoryCount = await visibleCards.count();
+
+    await test.step('Combine the category filter with a publisher', async () => {
+      await publisherFilter.selectOption({ index: 1 });
+      await expect(page.getByTestId('filter-result-count')).toContainText('Showing ');
+      expect(await visibleCards.count()).toBeLessThanOrEqual(categoryCount);
+    });
+
+    await test.step('Clear filters and restore all games', async () => {
+      await page.getByTestId('clear-filters').click();
+      await expect(visibleCards).toHaveCount(initialCount);
+      await expect(page.getByTestId('filter-result-count')).toHaveText(`Showing ${initialCount} games`);
+    });
+  });
+
   test('should display games with titles on index page', async ({ page }) => {
     await test.step('Navigate to homepage', async () => {
       await page.goto('/');
